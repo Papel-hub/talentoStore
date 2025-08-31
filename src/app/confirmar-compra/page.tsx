@@ -1,54 +1,47 @@
-// app/confirmar-compra/page.tsx
-
 "use client";
 
 import { useCart } from "@/app/context/CartContext";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { db } from "@/lib/firebaseConfig";
-import { collection, addDoc } from "firebase/firestore";
+import { db } from "@/lib/firebaseConfig"; // Certifique-se de exportar tudo do seu firebaseConfig
+import { 
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  serverTimestamp
+} from "firebase/firestore";
+import { Order } from "@/types/order"
 
-// Interface do Pedido (opcional: crie em /types se quiser)
-interface Order {
-  customer: {
-    nome: string;
-    email: string;
-    cpf: string;
-    celular: string;
-    tipoPessoa: "fisica" | "juridica";
-  };
-  items: Array<{
-    id: string;
-    title: string;
-    price: string;
-    quantity: number;
-  }>;
-  total: number;
-  paymentMethod: string;
-  status: "pending";
-  createdAt: string;
-}
 
 export default function ConfirmarCompraPage() {
   const { cartItems, cartTotal } = useCart();
   const router = useRouter();
 
-  // Etapas
   const [step, setStep] = useState<1 | 2>(1);
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Dados do formulário
+  // Dados do cliente
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [cpf, setCpf] = useState("");
   const [celular, setCelular] = useState("");
   const [tipoPessoa, setTipoPessoa] = useState<"fisica" | "juridica">("fisica");
 
-  // Validação
-  const isFormValid = nome && email.includes("@") && celular.length >= 10 && (tipoPessoa === "juridica" || cpf.length === 14);
+  // Remove máscara do CPF (pontos e traço)
+const sanitizeCPF = (value: string) => value.replace(/\D/g, "");
 
-  // Máscara e validação de CPF
+ // Validações
+const isFormValid =
+  nome &&
+  email.includes("@") &&
+  celular.length >= 10 &&
+  (tipoPessoa === "juridica" || sanitizeCPF(cpf).length === 11);
+
+  // Máscara de CPF
   const maskCPF = (value: string) => {
     return value
       .replace(/\D/g, "")
@@ -57,79 +50,170 @@ export default function ConfirmarCompraPage() {
       .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
   };
 
-  const validateCPF = (cpf: string): boolean => {
-    const cleanCPF = cpf.replace(/\D/g, "");
-    if (cleanCPF.length !== 11) return false;
-    if (/^(\d)\1+$/.test(cleanCPF)) return false;
+  // Validar CPF
+// Validar CPF corretamente
+const validateCPF = (cpf: string): boolean => {
+  const cleanCPF = cpf.replace(/\D/g, "");
+  if (cleanCPF.length !== 11 || /^(\d)\1+$/.test(cleanCPF)) return false;
 
+  const calcDigit = (slice: number) => {
     let sum = 0;
-    for (let i = 0; i < 9; i++) sum += parseInt(cleanCPF.charAt(i)) * (10 - i);
-    let remainder = (sum * 10) % 11;
-    if (remainder === 10 || remainder === 11) remainder = 0;
-    if (remainder !== parseInt(cleanCPF.charAt(9))) return false;
+    let factor = slice + 1;
+    for (let i = 0; i < slice; i++) {
+      sum += parseInt(cleanCPF.charAt(i)) * (factor - i);
+    }
+    const remainder = (sum * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
 
-    sum = 0;
-    for (let i = 0; i < 10; i++) sum += parseInt(cleanCPF.charAt(i)) * (11 - i);
-    remainder = (sum * 10) % 11;
-    if (remainder === 10 || remainder === 11) remainder = 0;
-    if (remainder !== parseInt(cleanCPF.charAt(10))) return false;
+  const d1 = calcDigit(9);
+  const d2 = calcDigit(10);
 
-    return true;
+  return d1 === parseInt(cleanCPF.charAt(9)) && d2 === parseInt(cleanCPF.charAt(10));
+};
+
+
+  // Salvar cliente com status "suspenso" ao preencher identificação
+  const saveClientToFirestore = async () => {
+    const cleanCPF = cpf.replace(/\D/g, "");
+    const clientData = {
+      nome,
+      email,
+      cpf: tipoPessoa === "fisica" ? cleanCPF : null,
+      cnpj: tipoPessoa === "juridica" ? cleanCPF : null,
+      celular,
+      tipoPessoa,
+      status: "suspenso",
+      ultimoPedido: null,
+      historicoCompras: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    try {
+      const clientsRef = collection(db, "clientes");
+      const q = query(clientsRef, where("email", "==", email));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const docRef = querySnapshot.docs[0].ref;
+        const existingData = querySnapshot.docs[0].data();
+
+        // Só atualiza para "suspenso" se ainda não for "comprou"
+        if (existingData.status !== "comprou") {
+          await updateDoc(docRef, {
+            status: "suspenso",
+            updatedAt: serverTimestamp(),
+          });
+          console.log("Cliente atualizado para 'suspenso'");
+        }
+      } else {
+        await addDoc(clientsRef, clientData);
+        console.log("Cliente novo salvo como 'suspenso'");
+      }
+    } catch (error) {
+      console.error("Erro ao salvar cliente na identificação:", error);
+    }
   };
 
   // Ir para pagamento
-  const handleContinueToPayment = (e: React.FormEvent) => {
+  const handleContinueToPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (tipoPessoa === "fisica" && cpf.length === 14 && !validateCPF(cpf)) {
       alert("CPF inválido. Por favor, verifique os números.");
       return;
     }
-    if (isFormValid) {
-      setStep(2);
-    } else {
+
+    if (!isFormValid) {
       alert("Por favor, preencha todos os campos obrigatórios.");
+      return;
     }
+
+    // Salvar cliente com status "suspenso"
+    await saveClientToFirestore();
+
+    setStep(2);
   };
 
-// Finalizar compra
-const handleFinalize = async () => {
-  if (!paymentMethod) {
-    alert("Por favor, escolha uma forma de pagamento.");
-    return;
-  }
+  // Finalizar compra
+  const handleFinalize = async () => {
+    if (!paymentMethod) {
+      alert("Por favor, escolha uma forma de pagamento.");
+      return;
+    }
 
-  setIsSubmitting(true);
+    setIsSubmitting(true);
 
-  try {
-    const order: Order = {
-      customer: { nome, email, cpf, celular, tipoPessoa },
-      items: cartItems.map((item) => ({
+    try {
+      const now = new Date().toISOString();
+      const orderItems = cartItems.map((item) => ({
         id: item.id.toString(),
         title: item.titulo,
-        price: item.preco.toString(),
+        price: parseFloat(item.preco.toString()),
         quantity: item.quantity || 1,
-      })),
-      total: cartTotal,
-      paymentMethod,
-      status: "pending",
-      createdAt: new Date().toISOString(),
-    };
+      }));
 
-    await addDoc(collection(db, "orders"), order);
-    alert(`🎉 Compra realizada com sucesso!\n\nUm email foi enviado para ${email} com o acesso ao produto digital.`);
-    router.push("/compra-realizada");
-  } catch (error) {
-    console.error("Erro ao salvar pedido:", error);
-    alert("Erro ao finalizar compra. Tente novamente.");
-  } finally {
-    setIsSubmitting(false);
-  }
-}; // <-- Faltava fechar aqui a função
+      const order: Order = {
+        customer: { nome, email, cpf, celular, tipoPessoa },
+        items: orderItems,
+        total: cartTotal,
+        paymentMethod,
+        status: "pending",
+        createdAt: now,
+      };
+
+      // Salvar pedido
+      const orderRef = await addDoc(collection(db, "orders"), order);
+
+      // Atualizar cliente com status "comprou" e dados da compra
+      const clientsRef = collection(db, "clientes");
+      const q = query(clientsRef, where("email", "==", email));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const docRef = querySnapshot.docs[0].ref;
+        const purchaseData = {
+          status: "comprou",
+          ultimoPedido: {
+            orderId: orderRef.id,
+            createdAt: now,
+            total: cartTotal,
+            paymentMethod,
+            items: orderItems,
+          },
+          historicoCompras: [
+            {
+              orderId: orderRef.id,
+              createdAt: now,
+              total: cartTotal,
+              paymentMethod,
+              items: orderItems,
+            },
+            ...(Array.isArray(querySnapshot.docs[0].data().historicoCompras)
+              ? querySnapshot.docs[0].data().historicoCompras
+              : []),
+          ],
+          updatedAt: serverTimestamp(),
+        };
+
+        await updateDoc(docRef, purchaseData);
+        console.log("Cliente atualizado para 'comprou' com sucesso.");
+      }
+
+      alert(`🎉 Compra realizada com sucesso!\n\nUm email foi enviado para ${email} com o acesso ao produto digital.`);
+      router.push("/compra-realizada");
+    } catch (error) {
+      console.error("Erro ao finalizar compra:", error);
+      alert("Erro ao processar a compra. Tente novamente.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4">
       <div className="max-w-7xl mx-auto">
-        {/* Botão Voltar à Loja */}
+        {/* Botão Voltar */}
         <button
           onClick={() => router.push("/loja")}
           className="mb-6 flex items-center text-blue-600 hover:text-blue-800 font-medium transition-colors"
@@ -141,13 +225,13 @@ const handleFinalize = async () => {
           Finalizar Compra
         </h1>
 
-        {/* Indicador de Progresso */}
+        {/* Progresso */}
         <div className="flex justify-center mb-10">
           <div className="flex items-center space-x-4">
             <div className="flex flex-col items-center">
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold mb-2 ${
-                  step === 1 ? "bg-blue-600" : step > 1 ? "bg-green-500" : "bg-gray-300"
+                  step === 1 ? "bg-blue-600" : "bg-green-500"
                 }`}
               >
                 {step > 1 ? "✓" : "1"}
@@ -171,11 +255,11 @@ const handleFinalize = async () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* ====== COLUNA 1: IDENTIFICAÇÃO ====== */}
+          {/* IDENTIFICAÇÃO */}
           <div className="bg-white p-6 rounded-2xl shadow-lg">
             <h2 className="text-xl font-bold text-gray-900 mb-6">1. Identificação</h2>
             <p className="text-sm text-gray-600 mb-6">
-              Utilizaremos seu e-mail para: identificar seu perfil, histórico de compra, notificação de pedidos e envio do produto digital.
+              Utilizaremos seu e-mail para identificar seu perfil, histórico de compra e envio do produto digital.
             </p>
 
             <form onSubmit={handleContinueToPayment}>
@@ -264,64 +348,46 @@ const handleFinalize = async () => {
                   disabled={!isFormValid}
                   className={`w-full py-3 rounded-xl font-semibold transition-colors mt-6 ${
                     isFormValid
-                      ? 'bg-blue-600 text-white hover:bg-blue-700'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      ? "bg-blue-600 text-white hover:bg-blue-700"
+                      : "bg-gray-300 text-gray-500 cursor-not-allowed"
                   }`}
                 >
-                  {step === 1 ? 'Ir para Pagamento' : 'Editar Identificação'}
+                  {step === 1 ? "Ir para Pagamento" : "Editar Identificação"}
                 </button>
               </div>
             </form>
           </div>
 
-          {/* ====== COLUNA 2: PAGAMENTO ====== */}
-          <div className={`bg-white p-6 rounded-2xl shadow-lg transition-all ${step >= 2 ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+          {/* PAGAMENTO */}
+          <div className={`bg-white p-6 rounded-2xl shadow-lg transition-all ${step >= 2 ? "opacity-100" : "opacity-50 pointer-events-none"}`}>
             <h2 className="text-xl font-bold text-gray-900 mb-6">2. Pagamento</h2>
             {step < 2 ? (
               <p className="text-gray-500 italic">Complete a identificação para liberar o pagamento</p>
             ) : (
               <div className="space-y-4">
-                <div className="border rounded-lg p-4">
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="payment"
-                      checked={paymentMethod === "pix"}
-                      onChange={() => setPaymentMethod("pix")}
-                      className="text-green-600"
-                    />
-                    <span className="font-medium">PIX (Recomendado)</span>
-                  </label>
-                  <p className="text-sm text-gray-600 ml-6 mt-2">Pagamento instantâneo. Produto enviado por email após confirmação.</p>
-                </div>
-
-                <div className="border rounded-lg p-4">
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="payment"
-                      checked={paymentMethod === "paypal"}
-                      onChange={() => setPaymentMethod("paypal")}
-                      className="text-green-600"
-                    />
-                    <span className="font-medium">PayPal</span>
-                  </label>
-                  <p className="text-sm text-gray-600 ml-6 mt-2">Pague com conta PayPal ou cartão.</p>
-                </div>
-
-                <div className="border rounded-lg p-4">
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="payment"
-                      checked={paymentMethod === "cartao"}
-                      onChange={() => setPaymentMethod("cartao")}
-                      className="text-green-600"
-                    />
-                    <span className="font-medium">Cartão de Crédito</span>
-                  </label>
-                  <p className="text-sm text-gray-600 ml-6 mt-2">Até 12x com juros. Produto enviado após confirmação.</p>
-                </div>
+                {["pix", "paypal", "cartao"].map((method) => (
+                  <div key={method} className="border rounded-lg p-4">
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="payment"
+                        checked={paymentMethod === method}
+                        onChange={() => setPaymentMethod(method)}
+                        className="text-green-600"
+                      />
+                      <span className="font-medium">
+                        {method === "pix" && "PIX (Recomendado)"}
+                        {method === "paypal" && "PayPal"}
+                        {method === "cartao" && "Cartão de Crédito"}
+                      </span>
+                    </label>
+                    <p className="text-sm text-gray-600 ml-6 mt-2">
+                      {method === "pix" && "Pagamento instantâneo. Produto enviado por email após confirmação."}
+                      {method === "paypal" && "Pague com conta PayPal ou cartão."}
+                      {method === "cartao" && "Até 12x com juros. Produto enviado após confirmação."}
+                    </p>
+                  </div>
+                ))}
 
                 <button
                   onClick={handleFinalize}
@@ -344,7 +410,7 @@ const handleFinalize = async () => {
             )}
           </div>
 
-          {/* ====== COLUNA 3: RESUMO DO PEDIDO ====== */}
+          {/* RESUMO */}
           <div className="bg-white p-6 rounded-2xl shadow-lg">
             <h2 className="text-xl font-bold text-gray-900 mb-6">Resumo da Compra</h2>
             <div className="space-y-4 max-h-96 overflow-y-auto">

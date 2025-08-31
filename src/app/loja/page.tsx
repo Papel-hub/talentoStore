@@ -13,6 +13,7 @@ import {
 import ProductCard from "@/components/ProductCard";
 import { Product } from "@/types/product";
 import Header from "@/components/Header";
+import CartCheckout from "@/components/CartCheckout";
 
 export default function LojaPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -228,6 +229,8 @@ export default function LojaPage() {
           )}
         </>
       )}
+
+            {products.length > 0 && <CartCheckout />}
     </div>
   );
 }
