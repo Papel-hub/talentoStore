@@ -33,9 +33,9 @@ export default function Home() {
       <section className="pt-32 pb-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto text-center mb-16">
           <h1 className="text-4xl font-bold text-gray-900 mb-6">
-            Transforme sua carreira{" "}
+            TalentoStore – {" "}
             <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              farmacêutica
+              Consultoria & Soluções Farmacêuticas
             </span>
           </h1>
 
@@ -55,13 +55,12 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
-              Consultoria Farmacêutica
+              Nossos Serviços de Consultoria
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              Escolha o produto ideal para acelerar seu crescimento profissional
+              Conte com soluções práticas para gestão, regularização e operação da sua farmácia.
             </p>
           </div>
-
           {/* Loader / Produtos */}
           {loading ? (
             <div className="flex justify-center py-12">

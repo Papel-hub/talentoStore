@@ -11,6 +11,7 @@ export interface CartItem extends Product {
 }
 
 // Interface do Contexto
+// Interface do Contexto
 interface CartContextType {
   cartItems: CartItem[];
   addToCart: (product: Product) => void;
@@ -22,8 +23,9 @@ interface CartContextType {
   closeCart: () => void;
   openCart: () => void;
   cartCount: number;
-  cartTotal: string;
+  cartTotal: number; // <-- agora number
 }
+
 
 // Criar o Contexto
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -104,8 +106,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // Cálculos
   const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
 const cartTotal = cartItems.reduce((acc, item) => {
-  return acc + (item.preco * item.quantity);
-}, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return acc + item.preco * item.quantity;
+}, 0);
+
   return (
     <CartContext.Provider
       value={{
