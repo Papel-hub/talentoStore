@@ -23,7 +23,7 @@ interface Order {
     price: string;
     quantity: number;
   }>;
-  total: string;
+  total: number;
   paymentMethod: string;
   status: "pending";
   createdAt: string;
