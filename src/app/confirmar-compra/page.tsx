@@ -164,6 +164,18 @@ const validateCPF = (cpf: string): boolean => {
 
       // Salvar pedido
       const orderRef = await addDoc(collection(db, "orders"), order);
+      // Enviar e-mail com links
+       await fetch("/api/sendEmail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          nome,
+          orderId: orderRef.id,
+          items: orderItems,
+        }),
+      });
+
 
       // Atualizar cliente com status "comprou" e dados da compra
       const clientsRef = collection(db, "clientes");
