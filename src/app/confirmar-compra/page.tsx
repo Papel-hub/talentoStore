@@ -13,7 +13,8 @@ import {
   updateDoc,
   serverTimestamp
 } from "firebase/firestore";
-import { Order } from "@/types/order"
+import { Order } from "@/types/order";
+import { useEffect } from "react";
 
 
 export default function ConfirmarCompraPage() {
@@ -51,7 +52,6 @@ const isFormValid =
   };
 
   // Validar CPF
-// Validar CPF corretamente
 const validateCPF = (cpf: string): boolean => {
   const cleanCPF = cpf.replace(/\D/g, "");
   if (cleanCPF.length !== 11 || /^(\d)\1+$/.test(cleanCPF)) return false;
@@ -136,92 +136,50 @@ const validateCPF = (cpf: string): boolean => {
   };
 
   // Finalizar compra
-  const handleFinalize = async () => {
-    if (!paymentMethod) {
-      alert("Por favor, escolha uma forma de pagamento.");
-      return;
-    }
+const handleFinalize = async () => {
+  if (!paymentMethod) {
+    alert("Por favor, escolha uma forma de pagamento.");
+    return;
+  }
 
-    setIsSubmitting(true);
+  setIsSubmitting(true);
 
-    try {
-      const now = new Date().toISOString();
-      const orderItems = cartItems.map((item) => ({
-        id: item.id.toString(),
-        title: item.titulo,
-        price: parseFloat(item.preco.toString()),
-        quantity: item.quantity || 1,
-        arquivoUrl: item.arquivoUrl || null, // <-- garante que o link vai junto
-      }));
+  try {
+    const orderItems = cartItems.map((item) => ({
+      id: item.id.toString(),
+      title: item.titulo,
+      price: parseFloat(item.preco.toString()),
+      quantity: item.quantity || 1,
+      arquivoUrl: item.arquivoUrl || null,
+    }));
 
-      const order: Order = {
-        customer: { nome, email, cpf, celular, tipoPessoa },
+    const response = await fetch("/api/mercado-pago", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paymentMethod,
         items: orderItems,
         total: cartTotal,
-        paymentMethod,
-        status: "pending",
-        createdAt: now,
-      };
+        customer: { nome, email, cpf, celular, tipoPessoa },
+      }),
+    });
 
-      // Salvar pedido
-      const orderRef = await addDoc(collection(db, "orders"), order);
-      // Enviar e-mail com links
-       await fetch("/api/sendEmail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          nome,
-          orderId: orderRef.id,
-          items: orderItems,
-        }),
-      });
+    const data = await response.json();
 
-
-      // Atualizar cliente com status "comprou" e dados da compra
-      const clientsRef = collection(db, "clientes");
-      const q = query(clientsRef, where("email", "==", email));
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const docRef = querySnapshot.docs[0].ref;
-        const purchaseData = {
-          status: "comprou",
-          ultimoPedido: {
-            orderId: orderRef.id,
-            createdAt: now,
-            total: cartTotal,
-            paymentMethod,
-            items: orderItems,
-          },
-          historicoCompras: [
-            {
-              orderId: orderRef.id,
-              createdAt: now,
-              total: cartTotal,
-              paymentMethod,
-              items: orderItems,
-            },
-            ...(Array.isArray(querySnapshot.docs[0].data().historicoCompras)
-              ? querySnapshot.docs[0].data().historicoCompras
-              : []),
-          ],
-          updatedAt: serverTimestamp(),
-        };
-
-        await updateDoc(docRef, purchaseData);
-        console.log("Cliente atualizado para 'comprou' com sucesso.");
-      }
-
-      alert(`🎉 Compra realizada com sucesso!\n\nUm email foi enviado para ${email} com o acesso ao produto digital.`);
-      router.push("/compra-realizada");
-    } catch (error) {
-      console.error("Erro ao finalizar compra:", error);
-      alert("Erro ao processar a compra. Tente novamente.");
-    } finally {
-      setIsSubmitting(false);
+    if (!response.ok) {
+      throw new Error(data.error || "Falha ao criar pagamento");
     }
-  };
+
+    // 🚀 Redireciona para o checkout seguro do Mercado Pago
+    window.location.href = data.initPoint;
+  } catch (error: any) {
+    console.error("Erro ao processar pagamento:", error);
+    alert("Erro ao processar pagamento: " + error.message);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
+
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4">
@@ -390,13 +348,11 @@ const validateCPF = (cpf: string): boolean => {
                       />
                       <span className="font-medium">
                         {method === "pix" && "PIX (Recomendado)"}
-                        {method === "paypal" && "PayPal"}
                         {method === "cartao" && "Cartão de Crédito"}
                       </span>
                     </label>
                     <p className="text-sm text-gray-600 ml-6 mt-2">
                       {method === "pix" && "Pagamento instantâneo. Produto enviado por email após confirmação."}
-                      {method === "paypal" && "Pague com conta PayPal ou cartão."}
                       {method === "cartao" && "Até 12x com juros. Produto enviado após confirmação."}
                     </p>
                   </div>
