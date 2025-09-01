@@ -151,6 +151,7 @@ const validateCPF = (cpf: string): boolean => {
         title: item.titulo,
         price: parseFloat(item.preco.toString()),
         quantity: item.quantity || 1,
+        arquivoUrl: item.arquivoUrl || null, // <-- garante que o link vai junto
       }));
 
       const order: Order = {

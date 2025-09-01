@@ -7,6 +7,7 @@ export interface Product {
   preco: number;
   precoOriginal?: number;
   imagemUrl: string;
+  arquivoUrl?: string; 
   categoria: string;
   features: string[];
   bestseller?: boolean;
