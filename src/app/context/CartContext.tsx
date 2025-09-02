@@ -1,8 +1,7 @@
 // src/context/CartContext.tsx
 "use client";
 
-import React, { createContext, useContext,
-   useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { Product } from "@/types/product";
 
 // Interface do Item do Carrinho
@@ -11,10 +10,9 @@ export interface CartItem extends Product {
 }
 
 // Interface do Contexto
-// Interface do Contexto
 interface CartContextType {
   cartItems: CartItem[];
-  addToCart: (product: Product) => void;
+  addToCart: (product: Product, quantity?: number) => void; // ✅ Atualizado
   removeFromCart: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   clearCart: () => void;
@@ -23,9 +21,8 @@ interface CartContextType {
   closeCart: () => void;
   openCart: () => void;
   cartCount: number;
-  cartTotal: number; // <-- agora number
+  cartTotal: number;
 }
-
 
 // Criar o Contexto
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -59,25 +56,25 @@ export function CartProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("cartItems", JSON.stringify(cartItems));
   }, [cartItems]);
 
-  // Adicionar ao carrinho
-  const addToCart = (product: Product) => {
-    setCartItems(prev => {
-      const existing = prev.find(item => item.id === product.id);
+  // Adicionar ao carrinho (com quantidade opcional)
+  const addToCart = (product: Product, quantity: number = 1) => {
+    setCartItems((prev) => {
+      const existing = prev.find((item) => item.id === product.id);
       if (existing) {
-        return prev.map(item =>
+        return prev.map((item) =>
           item.id === product.id
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, quantity: item.quantity + quantity }
             : item
         );
       }
-      return [...prev, { ...product, quantity: 1 }];
+      return [...prev, { ...product, quantity }];
     });
-    setCartOpen(true); // Abre automaticamente ao adicionar
+    setCartOpen(true);
   };
 
   // Remover do carrinho
   const removeFromCart = (id: string) => {
-    setCartItems(prev => prev.filter(item => item.id !== id));
+    setCartItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   // Atualizar quantidade
@@ -86,8 +83,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       removeFromCart(id);
       return;
     }
-    setCartItems(prev =>
-      prev.map(item =>
+    setCartItems((prev) =>
+      prev.map((item) =>
         item.id === id ? { ...item, quantity } : item
       )
     );
@@ -99,15 +96,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
   };
 
   // Controle do modal
-  const toggleCart = () => setCartOpen(prev => !prev);
+  const toggleCart = () => setCartOpen((prev) => !prev);
   const openCart = () => setCartOpen(true);
   const closeCart = () => setCartOpen(false);
 
   // Cálculos
   const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
-const cartTotal = cartItems.reduce((acc, item) => {
-  return acc + item.preco * item.quantity;
-}, 0);
+  const cartTotal = cartItems.reduce((acc, item) => acc + item.preco * item.quantity, 0);
 
   return (
     <CartContext.Provider

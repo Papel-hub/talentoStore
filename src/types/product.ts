@@ -13,3 +13,8 @@ export interface Product {
   bestseller?: boolean;
   createdAt: any;
 }
+
+// Novo tipo: Produto + quantidade no carrinho
+export interface CartItem extends Product {
+  quantity: number;
+}

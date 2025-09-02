@@ -13,8 +13,7 @@ import {
   updateDoc,
   serverTimestamp
 } from "firebase/firestore";
-import { Order } from "@/types/order";
-import { useEffect } from "react";
+
 
 
 export default function ConfirmarCompraPage() {
@@ -23,7 +22,8 @@ export default function ConfirmarCompraPage() {
 
   const [step, setStep] = useState<1 | 2>(1);
   const [paymentMethod, setPaymentMethod] = useState<string>("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmittingStep1, setIsSubmittingStep1] = useState(false);
+  const [isSubmittingStep2, setIsSubmittingStep2] = useState(false);
 
   // Dados do cliente
   const [nome, setNome] = useState("");
@@ -31,6 +31,14 @@ export default function ConfirmarCompraPage() {
   const [cpf, setCpf] = useState("");
   const [celular, setCelular] = useState("");
   const [tipoPessoa, setTipoPessoa] = useState<"fisica" | "juridica">("fisica");
+
+
+  const formatPrice = (price: number) =>
+    new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(price);
+
 
   // Remove máscara do CPF (pontos e traço)
 const sanitizeCPF = (value: string) => value.replace(/\D/g, "");
@@ -116,24 +124,38 @@ const validateCPF = (cpf: string): boolean => {
   };
 
   // Ir para pagamento
-  const handleContinueToPayment = async (e: React.FormEvent) => {
-    e.preventDefault();
+const handleContinueToPayment = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (tipoPessoa === "fisica" && cpf.length === 14 && !validateCPF(cpf)) {
-      alert("CPF inválido. Por favor, verifique os números.");
-      return;
-    }
+  // Validação do CPF
+  if (tipoPessoa === "fisica" && cpf.length === 14 && !validateCPF(cpf)) {
+    alert("CPF inválido. Por favor, verifique os números.");
+    return;
+  }
 
-    if (!isFormValid) {
-      alert("Por favor, preencha todos os campos obrigatórios.");
-      return;
-    }
+  // Validação dos campos
+  if (!isFormValid) {
+    alert("Por favor, preencha todos os campos obrigatórios.");
+    return;
+  }
 
-    // Salvar cliente com status "suspenso"
+  // Inicia o loading
+  setIsSubmittingStep1(true);
+
+  try {
+    // Salva ou atualiza o cliente no Firestore
     await saveClientToFirestore();
 
+    // Após salvar, avança para o passo 2
     setStep(2);
-  };
+  } catch (error) {
+    console.error("Erro ao processar identificação:", error);
+    alert("Ocorreu um erro ao salvar seus dados. Tente novamente.");
+  } finally {
+    // Sempre finalize o loading
+    setIsSubmittingStep1(false);
+  }
+};
 
   // Finalizar compra
 const handleFinalize = async () => {
@@ -142,7 +164,7 @@ const handleFinalize = async () => {
     return;
   }
 
-  setIsSubmitting(true);
+  setIsSubmittingStep2(true); // ✅ Use o estado correto
 
   try {
     const orderItems = cartItems.map((item) => ({
@@ -170,13 +192,12 @@ const handleFinalize = async () => {
       throw new Error(data.error || "Falha ao criar pagamento");
     }
 
-    // 🚀 Redireciona para o checkout seguro do Mercado Pago
     window.location.href = data.initPoint;
   } catch (error: any) {
     console.error("Erro ao processar pagamento:", error);
     alert("Erro ao processar pagamento: " + error.message);
   } finally {
-    setIsSubmitting(false);
+    setIsSubmittingStep2(false); // ✅ Reseta o estado correto
   }
 };
 
@@ -314,17 +335,27 @@ const handleFinalize = async () => {
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={!isFormValid}
-                  className={`w-full py-3 rounded-xl font-semibold transition-colors mt-6 ${
-                    isFormValid
-                      ? "bg-blue-600 text-white hover:bg-blue-700"
-                      : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  }`}
-                >
-                  {step === 1 ? "Ir para Pagamento" : "Editar Identificação"}
-                </button>
+<button
+  type="submit"
+  disabled={!isFormValid || isSubmittingStep1}
+  className={`w-full py-3 rounded-xl font-semibold transition-colors mt-6 flex items-center justify-center ${
+    isFormValid && !isSubmittingStep1
+      ? "bg-blue-600 text-white hover:bg-blue-700"
+      : "bg-gray-300 text-gray-500 cursor-not-allowed"
+  }`}
+>
+  {isSubmittingStep1 ? (
+    <>
+      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      Validando...
+    </>
+  ) : (
+    step === 1 ? "Ir para Pagamento" : "Editar Identificação"
+  )}
+</button>
               </div>
             </form>
           </div>
@@ -336,7 +367,7 @@ const handleFinalize = async () => {
               <p className="text-gray-500 italic">Complete a identificação para liberar o pagamento</p>
             ) : (
               <div className="space-y-4">
-                {["pix", "paypal", "cartao"].map((method) => (
+                {["pix", "cartao"].map((method) => (
                   <div key={method} className="border rounded-lg p-4">
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input
@@ -357,24 +388,23 @@ const handleFinalize = async () => {
                     </p>
                   </div>
                 ))}
-
-                <button
-                  onClick={handleFinalize}
-                  disabled={!paymentMethod || isSubmitting}
-                  className="w-full bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition-colors mt-8 flex items-center justify-center"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Processando...
-                    </>
-                  ) : (
-                    "Finalizar Compra"
-                  )}
-                </button>
+<button
+  onClick={handleFinalize}
+  disabled={!paymentMethod || isSubmittingStep2}
+  className="w-full bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition-colors mt-8 flex items-center justify-center"
+>
+  {isSubmittingStep2 ? (
+    <>
+      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      Processando...
+    </>
+  ) : (
+    "Finalizar Compra"
+  )}
+</button>
               </div>
             )}
           </div>
@@ -395,7 +425,9 @@ const handleFinalize = async () => {
                     />
                     <div className="flex-1">
                       <h3 className="font-medium text-gray-900 text-sm">{item.titulo}</h3>
-                      <p className="text-blue-600 font-bold">{item.preco} x{item.quantity}</p>
+                      <p className="text-blue-600 font-bold">
+                        {formatPrice(parseFloat(item.preco.toString()))} x{item.quantity}
+                      </p>
                     </div>
                   </div>
                 ))
@@ -405,7 +437,7 @@ const handleFinalize = async () => {
             <div className="border-t pt-4 mt-4">
               <div className="flex justify-between text-lg font-semibold">
                 <span>Total:</span>
-                <span className="text-blue-600">{cartTotal}</span>
+                <span className="text-blue-600">{formatPrice(cartTotal)}</span>
               </div>
             </div>
 
