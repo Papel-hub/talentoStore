@@ -82,7 +82,7 @@ export default function ProductDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 pb-28">
 
       <div className="max-w-7xl mx-auto">
         {/* Botão Voltar */}
